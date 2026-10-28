@@ -792,6 +792,76 @@ export async function openApplet(page: Page, name: string): Promise<string> {
   throw new Error(`Applet "${name}" not found in any Tools tab. Call flow_tools_list to see what is available.`);
 }
 
+// ---- Applet iframe automation ----
+
+// Find the applet iframe (scf.usercontent.goog blob URL) and return its Frame
+async function getAppletFrame(page: Page): Promise<import("playwright-core").Frame | null> {
+  const frames = page.frames();
+  for (const frame of frames) {
+    const url = frame.url();
+    if (url.startsWith("blob:") && url.includes("scf.usercontent.goog")) {
+      // Wait for the applet to load (compiler frame loads first, then applet frame)
+      await pause(page, 3000);
+      const html = await frame.content().catch(() => "");
+      if (html.length > 10000) {
+        return frame; // Applet frame has substantial DOM
+      }
+    }
+  }
+  return null;
+}
+
+// Wait for applet frame to be ready
+export async function waitForAppletReady(page: Page, timeoutMs = 30000): Promise<import("playwright-core").Frame> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const frame = await getAppletFrame(page);
+    if (frame) return frame;
+    await pause(page, 1000);
+  }
+  throw new Error("Applet iframe did not load in time");
+}
+
+// Generic applet interaction helpers
+export async function clickAppletButton(frame: import("playwright-core").Frame, label: string): Promise<void> {
+  const btn = frame.locator(`button:has-text("${label}"), button[aria-label="${label}"]`).first();
+  await btn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  await btn.click({ timeout: 5000 });
+  await pause(frame.page(), 500);
+}
+
+export async function selectAppletTool(frame: import("playwright-core").Frame, toolName: string): Promise<void> {
+  // Tool buttons in Simple Sketch have icons as text (Material icons)
+  const btn = frame.locator(`button:has-text("${toolName}"), button[aria-label="${toolName}"]`).first();
+  await btn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  await btn.click({ timeout: 5000 });
+  await pause(frame.page(), 300);
+}
+
+export async function typeInApplet(frame: import("playwright-core").Frame, text: string): Promise<void> {
+  const textarea = frame.locator("textarea").first();
+  await textarea.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  await textarea.fill(text, { timeout: 5000 });
+  await pause(frame.page(), 300);
+}
+
+export async function clickAppletGenerate(frame: import("playwright-core").Frame): Promise<void> {
+  const btn = frame.locator("button:has-text(\"arrow_forward\"), button:has-text(\"Generate\"), button[aria-label*=\"generate\" i]").first();
+  await btn.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+  if (!(await btn.isEnabled().catch(() => false))) {
+    throw new Error("Generate button is disabled - check if input is required");
+  }
+  await btn.click({ timeout: 5000 });
+  await pause(frame.page(), 1000);
+}
+
+export async function selectAppletModel(frame: import("playwright-core").Frame, model: "FAST" | "PRO"): Promise<void> {
+  const btn = frame.locator(`button:has-text("${model}")`).first();
+  await btn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  await btn.click({ timeout: 5000 });
+  await pause(frame.page(), 300);
+}
+
 // All media: through the left-hand menu when it shows. When it does not (collapsed and scrolled away), the top bar's
 // Filter menu does the same job: nothing ticked, newest first. `thorough` (the start of a job) checks that menu; a
 // plain grid scan does not, so a hidden menu costs nothing.

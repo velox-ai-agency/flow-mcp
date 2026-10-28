@@ -6,7 +6,7 @@ import { assemble, localVoices, speakLocally, voiceTrack } from "./assemble.js";
 import { GEMINI_VOICES, geminiKey, saveGeminiKey, speakWithGemini } from "./gemini.js";
 import { extractLastFrame } from "./chain.js";
 import { burnCaptions, captionedName, captionSetup, previewCaptions, transcribe } from "./captions.js";
-import { characterLook, createCharacter, downloadAsset, trashAsset, editCharacter, getFlowState, listAssets, listCharacters, rememberCharacter, runAgentBatch, runContinue, runEdit, runGeneration, openToolsTab, switchToolsTab, listApplets, openApplet } from "./flow.js";
+import { characterLook, createCharacter, downloadAsset, trashAsset, editCharacter, getFlowState, listAssets, listCharacters, rememberCharacter, runAgentBatch, runContinue, runEdit, runGeneration, openToolsTab, switchToolsTab, listApplets, openApplet, waitForAppletReady, clickAppletButton, selectAppletTool, typeInApplet, clickAppletGenerate, selectAppletModel, pause } from "./flow.js";
 import { getFlowPage } from "./chrome.js";
 import { JobQueue, type Job } from "./queue.js";
 import { BIN, COMPUTER, IS_MAC, IS_WIN, moveToBin } from "./platform.js";
@@ -269,6 +269,13 @@ export const shapes = {
   tool_open: {
     name: z.string().min(1).describe("Exact applet name as shown in flow_tools_list."),
   },
+  applet_run: {
+    name: z.string().min(1).describe("Exact applet name as shown in flow_tools_list."),
+    prompt: z.string().optional().describe("Text input for the applet (e.g., additional instructions for Simple Sketch)."),
+    tool: z.string().optional().describe("Tool to select in the applet (e.g., 'pencil', 'brush', 'eraser', 'rectangle', 'circle', 'text', 'upload')."),
+    model: z.enum(["FAST", "PRO"]).optional().describe("Model speed for the applet."),
+    wait_seconds: z.number().int().min(10).max(300).default(60).describe("Max seconds to wait for generation."),
+  },
 };
 
 type Args<K extends keyof typeof shapes> = z.infer<z.ZodObject<(typeof shapes)[K]>>;
@@ -317,6 +324,7 @@ export interface Core {
   caption_setup(): Promise<unknown>;
   tools(a: Args<"tools">): Promise<unknown>;
   tool_open(a: Args<"tool_open">): Promise<unknown>;
+  applet_run(a: Args<"applet_run">): Promise<unknown>;
 }
 
 // Flow's own voices: still offered when giving a character a voice, but narration no longer goes through Flow.
@@ -541,6 +549,25 @@ export class LocalCore implements Core {
     const page = await getFlowPage();
     const url = await openApplet(page, name);
     return { name, url };
+  }
+
+  async applet_run({ name, prompt, tool, model, wait_seconds }: Args<"applet_run">) {
+    const page = await getFlowPage();
+    const url = await openApplet(page, name);
+
+    // Wait for applet iframe to be ready
+    const { waitForAppletReady, clickAppletButton, selectAppletTool, typeInApplet, clickAppletGenerate, selectAppletModel } = await import("./flow.js");
+    const frame = await waitForAppletReady(page, wait_seconds * 1000);
+
+    if (tool) await selectAppletTool(frame, tool);
+    if (prompt) await typeInApplet(frame, prompt);
+    if (model) await selectAppletModel(frame, model);
+    await clickAppletGenerate(frame);
+
+    // Wait for generation to complete (applet-specific)
+    await pause(page, wait_seconds * 1000);
+
+    return { name, url, frameUrl: frame.url() };
   }
 
   // Everything already downloaded, newest project first, so the panel can show past work after a restart.
