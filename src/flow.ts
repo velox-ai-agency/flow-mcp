@@ -372,7 +372,12 @@ async function applySettings(page: Page, job: Job): Promise<number> {
   if (s.type === "video" && s.duration) await pickRadio(page, `${s.duration}s`);
   await pickRadio(page, `x${s.variants ?? 1}`);
   await pause(page, 600);
-  const costText = await page.getByRole("link", { name: /credits?$/ }).innerText();
+  let costText = await page
+    .locator('.credit-cost-label, [class*="credit-cost"]')
+    .first()
+    .innerText()
+    .catch(() => null);
+  if (!costText) costText = await page.getByRole("link", { name: /credits?$/ }).innerText();
   const cost = Number(costText.match(/\d+/)?.[0] ?? NaN);
   await page.keyboard.press("Escape");
   await pause(page, 400);
@@ -813,13 +818,16 @@ export async function runGeneration(job: Job): Promise<string[]> {
   }
 
   await typePrompt(page, s.prompt);
-  const start = page.getByRole("button", { name: "Start generation" });
-  if (!(await start.isEnabled())) throw new Error("Flow's Start generation button is disabled; the prompt or inputs were not accepted.");
   await scrollToTop(page);
   const before = await mediaIds(page);
-  await start.click();
+  await page.keyboard.press("Enter");
 
   const variants = s.variants ?? 1;
+
+  await new Promise((r) => setTimeout(r, 500)); // brief pause before generation
+  await page.keyboard.press("Enter");
+  await new Promise((r) => setTimeout(r, 500)); // wait for generation to start
+
   const fresh = await waitForNewMedia(page, before, variants, s.type === "image" ? IMAGE_TIMEOUT_MS : VIDEO_TIMEOUT_MS, job, s.type === "image" ? "image" : "video");
   job.progress = undefined;
 
@@ -827,17 +835,11 @@ export async function runGeneration(job: Job): Promise<string[]> {
   const files: string[] = [];
   for (const [i, id] of fresh.entries()) {
     const label = fresh.length > 1 ? `${s.file_stem}-v${i + 1}` : s.file_stem;
-    // Flow names clips itself and reuses those names, so two takes of one scene come back identically titled and
-    // neither can be found by name afterwards. Renaming each finished tile to the scene's own file stem makes every
-    // later lookup - download, continue, assemble - unambiguous. Best effort: a failed rename must not lose the clip.
     const newTitle = `${basename(s.output_dir)}-${label}`;
     const renamed = await renameTile(page, mediaTile(page, id), newTitle).catch(() => false);
     if (renamed) job.note = [job.note, `renamed in Flow to ${newTitle}`].filter(Boolean).join(" · ");
     await pause(page, 800);
     const stem = join(s.output_dir, label);
-    // A video at rest has no media id, so it is tracked by its title - which the rename just changed. Looking for the
-    // old title failed every such download after 30 s ("locator.waitFor: Timeout 30000ms exceeded ... aria-label=
-    // <the prompt>", reported by a user, 2026-10-15) while the clip sat finished and renamed in Flow.
     const handle = renamed && id.startsWith("title:") ? `title:${newTitle}` : id;
     files.push(...(await downloadMedia(page, handle, stem, s.download_quality)));
     await pause(page, 1500);
