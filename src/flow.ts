@@ -369,8 +369,8 @@ async function applySettings(page: Page, job: Job): Promise<number> {
   if (s.aspect_ratio) await pickRadio(page, s.aspect_ratio);
   const model = s.type === "image" && LEGACY_IMAGE_MODEL.test(s.model ?? "") ? LATEST_IMAGE_MODEL : s.model;
   if (model) await pickModel(page, model);
-  if (s.type === "video" && s.resolution) await pickRadio(page, new RegExp(`^${s.resolution}`));
-  if (s.type === "video" && s.duration) await pickRadio(page, `${s.duration}s`);
+  if (s.type === "video" && s.resolution) await pickRadio(page, new RegExp(`^${s.resolution}`)).catch(() => {});
+  if (s.type === "video" && s.duration) await pickRadio(page, `${s.duration}s`).catch(() => {});
   await pickRadio(page, `x${s.variants ?? 1}`);
   await pause(page, 600);
   let costText = await page
