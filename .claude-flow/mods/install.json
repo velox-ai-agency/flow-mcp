@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "installedAt": "2026-10-28T18:24:40.375Z",
+  "files": {
+    "/Users/h/projects/websites/flow-mcp/.claude/settings.json": {
+      "plugins": [
+        "ruflo-mods@ruflo",
+        "ruflo-swarm@ruflo",
+        "ruflo-console@ruflo"
+      ],
+      "marketplace": true,
+      "env": true,
+      "claudeInstalled": [
+        "ruflo-swarm@ruflo"
+      ]
+    }
+  }
+}

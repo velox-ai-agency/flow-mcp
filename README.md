@@ -168,7 +168,9 @@ Eight tabs, in the order you would use them:
   finished film, not loose clips), or move it to Flow's Trash.
 - **Tools**: Flow's Applets Marketplace. Browse Google's 34 built-in templates, your own saved tools and
   the community's shared applets, search them, and open one to run it. Each applet has its own interface
-  inside a sandboxed iframe, so driving it takes a look at what it asks for.
+  inside a sandboxed iframe. The panel can also drive **Simple Sketch** (sketch-to-image) end-to-end:
+  pick model (FAST/PRO), tool (brush, pencil, eraser, etc.), type a prompt, and click Generate — it draws
+  a stroke on the canvas, submits, and downloads the result when ready.
 
 A progress monitor and a gallery of your saved work sit alongside. The gallery shows stills or clips
 on the tabs that use them. On a wide screen, each side scrolls on its own. Two kinds of delete, clearly
@@ -212,6 +214,7 @@ agree on what is running. That API listens on 127.0.0.1 only and needs a per-run
 | `flow_assemble` | Join clips into one MP4 (a project's clips, or any you list, in order) with optional music and voiceover, and separate volume for the clips' own sound. A voiceover can also be built line by line (`voice_lines`), each line cut from a take and placed at its own moment, for narration timed to on-screen titles (local FFmpeg, no credits) |
 | `flow_tools_list` | List the applets in Flow's Tools tab: `Templates` (Google's 34 built-in applets), `My Tools` (your saved ones) or `Community` (shared applets), with an optional `search` filter. Returns name, author, description and preview image for each |
 | `flow_tool_open` | Open an applet by its exact name (from `flow_tools_list`) and return its URL. The applet runs in a sandboxed iframe; its own UI still has to be driven by hand the first time |
+| `flow_applet_run` | Drive a Flow applet inside its sandboxed iframe. Works for **Simple Sketch** (sketch-to-image): selects model (FAST/PRO), tool (brush, pencil, eraser, rectangle, circle, text, upload), draws a stroke on the canvas (required for sketch-to-image), types prompt, clicks Generate, and waits for completion. Returns when generation finishes |
 
 **Continuity between shots:** `chain_previous` (this clip starts on the last frame of the previous
 one), `first_frame` + `last_frame` (animate between two stills you chose), `reference_images` (keep a

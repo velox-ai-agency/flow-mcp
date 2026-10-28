@@ -20,7 +20,7 @@ const IMAGE_TIMEOUT_MS = 3 * 60_000;
 const VIDEO_TIMEOUT_MS = 12 * 60_000;
 const FAILURE_TEXT = /failed|couldn.t|unable/i;
 
-const pause = (page: Page, ms: number) => page.waitForTimeout(ms);
+export const pause = (page: Page, ms: number) => page.waitForTimeout(ms);
 
 // `detailed` opens the account panel to read the balance, so it must not run while a generation is driving the page.
 export async function getFlowState(detailed = false): Promise<FlowState> {
@@ -702,13 +702,14 @@ async function downloadTile(page: Page, target: Locator | TileResolver, targetSt
 
 // The left-hand "Project navigation" (All media, Images, Videos, Characters...). Its Collapse button (a setting Flow
 // keeps for every project) turns it into a strip of icons with no labels, and getByText("Characters") then found
-// nothing visible. Each item's text holds its icon name and its label whether or not the label shows, so it is found by
-// label in both states. (Why the menu used to vanish altogether: see leaveSideMenu.)
+// nothing visible. Each item's text holds its icon name (e.g. "apps_spark_2") followed by the label ("Tools"),
+// separated by a newline. The collapsed state only shows the icon. Playwright's `hasText` does substring matching,
+// so we can just match the label text directly.
 async function clickProjectNav(page: Page, item: string): Promise<boolean> {
   const button = page
     .getByRole("navigation", { name: "Project navigation" })
     .locator("button, a")
-    .filter({ hasText: new RegExp(`${item}\\s*$`) })
+    .filter({ hasText: item }) // substring match; "Tools" matches "apps_spark_2\nTools"
     .first();
   if (!(await button.isVisible().catch(() => false))) return false;
   await button.click({ timeout: 5000 });
@@ -741,7 +742,10 @@ async function openProjectNav(page: Page, item: string): Promise<void> {
 export async function openToolsTab(page: Page): Promise<void> {
   if (page.url().match(/\/tools$/)) return;
   if (await clickProjectNav(page, "Tools").catch(() => false)) return;
-  await page.goto(inEnglish(page.url().replace(/\/[^/]*$/, "/tools")), { waitUntil: "domcontentloaded" });
+  // Preserve the project ID: /project/<id>/... -> /project/<id>/tools
+  const projectRoot = page.url().match(/^https:\/\/[^/]+\/project\/[0-9a-f-]{36}/)?.[0];
+  const target = projectRoot ? inEnglish(`${projectRoot}/tools`) : inEnglish(page.url().replace(/\/[^/]*$/, "/tools"));
+  await page.goto(target, { waitUntil: "domcontentloaded" });
   await pause(page, 2000);
   // Wait for the tabs to be available (the page loads the Templates tab by default)
   await page.waitForSelector('mat-button-toggle:has-text("Templates")', { timeout: 15000 }).catch(() => {});
@@ -825,17 +829,35 @@ export async function waitForAppletReady(page: Page, timeoutMs = 30000): Promise
 // Generic applet interaction helpers
 export async function clickAppletButton(frame: import("playwright-core").Frame, label: string): Promise<void> {
   const btn = frame.locator(`button:has-text("${label}"), button[aria-label="${label}"]`).first();
-  await btn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  await btn.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
   await btn.click({ timeout: 5000 });
   await pause(frame.page(), 500);
 }
 
+// Map user-friendly tool names to Simple Sketch's Material icon text
+const SIMPLE_SKETCH_TOOLS: Record<string, string> = {
+  "pencil": "edit",
+  "brush": "edit",
+  "eraser": "delete",
+  "move": "near_me",
+  "rectangle": "rectangle",
+  "circle": "circle",
+  "text": "title",
+  "upload": "add_photo_alternate",
+  "undo": "undo",
+  "redo": "redo",
+};
+
 export async function selectAppletTool(frame: import("playwright-core").Frame, toolName: string): Promise<void> {
-  // Tool buttons in Simple Sketch have icons as text (Material icons)
-  const btn = frame.locator(`button:has-text("${toolName}"), button[aria-label="${toolName}"]`).first();
-  await btn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  // Tool buttons in Simple Sketch have Material icons as text
+  const iconName = SIMPLE_SKETCH_TOOLS[toolName] ?? toolName;
+  const btn = frame.locator(`button:has-text("${iconName}"), button[aria-label="${iconName}"]`).first();
+  await btn.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
   await btn.click({ timeout: 5000 });
   await pause(frame.page(), 300);
+
+  // Frame might reload after tool selection, wait a bit
+  await pause(frame.page(), 1000);
 }
 
 export async function typeInApplet(frame: import("playwright-core").Frame, text: string): Promise<void> {
@@ -860,6 +882,20 @@ export async function selectAppletModel(frame: import("playwright-core").Frame, 
   await btn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
   await btn.click({ timeout: 5000 });
   await pause(frame.page(), 300);
+}
+
+// Draw a simple stroke on the first canvas (for sketch-to-image applets like Simple Sketch)
+export async function drawOnAppletCanvas(frame: import("playwright-core").Frame): Promise<void> {
+  const canvas = frame.locator("canvas").first();
+  if (!(await canvas.count())) return;
+  const box = await canvas.boundingBox().catch(() => null);
+  if (!box) return;
+  // Draw a simple diagonal stroke from top-left area to center
+  await frame.page().mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.1);
+  await frame.page().mouse.down();
+  await frame.page().mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await frame.page().mouse.up();
+  await pause(frame.page(), 500);
 }
 
 // All media: through the left-hand menu when it shows. When it does not (collapsed and scrolled away), the top bar's

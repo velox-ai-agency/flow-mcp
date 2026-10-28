@@ -556,12 +556,28 @@ export class LocalCore implements Core {
     const url = await openApplet(page, name);
 
     // Wait for applet iframe to be ready
-    const { waitForAppletReady, clickAppletButton, selectAppletTool, typeInApplet, clickAppletGenerate, selectAppletModel } = await import("./flow.js");
-    const frame = await waitForAppletReady(page, wait_seconds * 1000);
+    const { waitForAppletReady, selectAppletTool, typeInApplet, clickAppletGenerate, selectAppletModel, drawOnAppletCanvas } = await import("./flow.js");
+    let frame = await waitForAppletReady(page, wait_seconds * 1000);
 
-    if (tool) await selectAppletTool(frame, tool);
-    if (prompt) await typeInApplet(frame, prompt);
-    if (model) await selectAppletModel(frame, model);
+    // For sketch-to-image applets like Simple Sketch, we need to:
+    // 1. Select model (FAST/PRO)
+    // 2. Select tool (brush/pencil)
+    // 3. Draw on canvas
+    // 4. Type prompt
+    // 5. Click generate
+    if (model) {
+      await selectAppletModel(frame, model);
+    }
+    if (tool) {
+      await selectAppletTool(frame, tool);
+      // Re-acquire frame in case it reloaded
+      frame = await waitForAppletReady(page, 10000);
+    }
+    // Draw on canvas (required for sketch-to-image applets)
+    await drawOnAppletCanvas(frame);
+    if (prompt) {
+      await typeInApplet(frame, prompt);
+    }
     await clickAppletGenerate(frame);
 
     // Wait for generation to complete (applet-specific)

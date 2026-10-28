@@ -343,4 +343,16 @@ server.registerTool(
   (args) => reply(patient("flow_tool_open", core.tool_open(args))),
 );
 
+server.registerTool(
+  "flow_applet_run",
+  {
+    title: "Run a Flow applet (iframe automation)",
+    description:
+      "Drive a Flow applet from the Tools tab inside its sandboxed iframe. Works for Simple Sketch and similar applets: selects model (FAST/PRO), tool (brush, pencil, etc.), draws a stroke on the canvas (required for sketch-to-image), types prompt, and clicks Generate. Returns when generation completes. Use flow_tool_open first to verify the applet loads, then call this with the same name.",
+    inputSchema: shapes.applet_run,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  (args) => reply(patient("flow_applet_run", core.applet_run(args))),
+);
+
 await server.connect(new StdioServerTransport());
