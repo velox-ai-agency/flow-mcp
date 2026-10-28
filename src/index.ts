@@ -319,4 +319,28 @@ server.registerTool(
   (args) => reply(patient("flow_captions", core.captions(args))),
 );
 
+server.registerTool(
+  "flow_tools_list",
+  {
+    title: "List Flow applets (Tools tab)",
+    description:
+      "List the applets available in Flow's Tools tab. category: 'Templates' (Google's built-in, 34 applets), 'My Tools' (your saved applets), 'Community' (shared applets). Pass `search` to filter by name/description/author. Returns name, author, description and preview image URL for each.",
+    inputSchema: shapes.tools,
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  (args) => reply(core.tools(args)),
+);
+
+server.registerTool(
+  "flow_tool_open",
+  {
+    title: "Open a Flow applet",
+    description:
+      "Open a specific applet from the Tools tab by its exact name. Returns the applet's URL (which loads the sandboxed iframe where the tool runs). Use flow_tools_list first to see available names.",
+    inputSchema: shapes.tool_open,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  (args) => reply(patient("flow_tool_open", core.tool_open(args))),
+);
+
 await server.connect(new StdioServerTransport());

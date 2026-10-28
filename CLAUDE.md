@@ -43,6 +43,11 @@ OmniFlow (lingoflow.pro/omniflow), using subscription credits instead of the API
   `270p Animated GIF`, `720p Original size`, `1080p Upscaled` (4K disabled on Pro). Playwright `download.saveAs` works over CDP.
 - Other tile menu items not automated yet: `Animate` (image→video), `Add to scene`, `Add to prompt`, `Rename`.
   Left nav: All media, Images, Videos, Characters, Scenes, Uploads, Tools, Trash.
+  Tools tab = the Applets marketplace (/project/<id>/tools): three tabs (Templates, My Tools, Community),
+  each showing <flow-applet-card> elements with .applet-name, .applet-author, .applet-description. Clicking a
+  card opens /project/<id>/tool/<uuid>?mode=APP&fromViewSource=tools, where the applet runs in a sandboxed iframe.
+  Implemented: flow_tools_list (list applets by category), flow_tool_open (open an applet by name).
+  Not automated yet: interacting with an applet's own UI inside the iframe (each applet is different).
 - Edit view: clicking a video tile opens `/project/<id>/edit/<uuid>`. It has the edit composer
   ("Describe how to edit this video…", Omni 1.1 Flash, `Start generation`) = basis for `flow_edit`;
   a scene timeline with `Add clip` (native stitching), `Save frame`, `Download media`, history strip of
@@ -55,10 +60,11 @@ Verified unattended end to end: image (incl. x2 variants), text→video, first+l
 flow_assets, flow_download, flow_techniques, flow_assemble (incl. looping music + voiceover mix, checked with
 volumedetect), flow_character, flow_edit (20 credits for a 4 s clip, result verified visually), flow_agent_images
 (20 scenes → 20 files in scene order, 204 s, 0 credits; and the re-ask + one-by-one recovery path), Studio panel,
-MCP-as-client via RemoteCore.
+MCP-as-client via RemoteCore, flow_tools_list, flow_tool_open.
 Omni 1.1 Flash quotes: 360p 4/5/6/7 and 720p 7/10/12/15 credits for 4/6/8/10 s.
 Not built: "improve prompt (AI)" in Studio (bundled Claude Code CLI exists at
 ~/Library/Application Support/Claude/claude-code/<ver>/claude.app/Contents/MacOS/claude but is not logged in).
+Tools tab iframe automation: not yet (each applet has its own UI inside a sandboxed iframe).
 The app's Browser pane shows `studio/index.html` as a static file after edits: that view is NOT connected (the page
 now says so). The real panel is http://127.0.0.1:8787 served by `npm run studio` / `Flow Studio.command`.
 The preview tool could not read the project while it lived in ~/Desktop; check the Studio UI with headless Chrome screenshots instead.

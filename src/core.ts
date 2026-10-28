@@ -6,7 +6,8 @@ import { assemble, localVoices, speakLocally, voiceTrack } from "./assemble.js";
 import { GEMINI_VOICES, geminiKey, saveGeminiKey, speakWithGemini } from "./gemini.js";
 import { extractLastFrame } from "./chain.js";
 import { burnCaptions, captionedName, captionSetup, previewCaptions, transcribe } from "./captions.js";
-import { characterLook, createCharacter, downloadAsset, trashAsset, editCharacter, getFlowState, listAssets, listCharacters, rememberCharacter, runAgentBatch, runContinue, runEdit, runGeneration } from "./flow.js";
+import { characterLook, createCharacter, downloadAsset, trashAsset, editCharacter, getFlowState, listAssets, listCharacters, rememberCharacter, runAgentBatch, runContinue, runEdit, runGeneration, openToolsTab, switchToolsTab, listApplets, openApplet } from "./flow.js";
+import { getFlowPage } from "./chrome.js";
 import { JobQueue, type Job } from "./queue.js";
 import { BIN, COMPUTER, IS_MAC, IS_WIN, moveToBin } from "./platform.js";
 import { TECHNIQUES, techniqueById } from "./techniques.js";
@@ -261,6 +262,13 @@ export const shapes = {
     voice: z.string().optional().describe("Flow voice name, e.g. 'Charon' (male, informative) or 'Aoede' (female, breezy)."),
   },
   techniques: { category: z.enum(["camera", "product", "transition", "image"]).optional() },
+  tools: {
+    category: z.enum(["Templates", "My Tools", "Community"]).optional().default("Templates").describe("Which Tools tab to list. Templates = Google's built-in applets, My Tools = your saved applets, Community = shared applets."),
+    search: z.string().optional().describe("Optional filter to find applets by name or description."),
+  },
+  tool_open: {
+    name: z.string().min(1).describe("Exact applet name as shown in flow_tools_list."),
+  },
 };
 
 type Args<K extends keyof typeof shapes> = z.infer<z.ZodObject<(typeof shapes)[K]>>;
@@ -307,6 +315,8 @@ export interface Core {
   caption_preview(a: Args<"caption_preview">): Promise<unknown>;
   captions(a: Args<"captions">): Promise<unknown>;
   caption_setup(): Promise<unknown>;
+  tools(a: Args<"tools">): Promise<unknown>;
+  tool_open(a: Args<"tool_open">): Promise<unknown>;
 }
 
 // Flow's own voices: still offered when giving a character a voice, but narration no longer goes through Flow.
@@ -511,6 +521,26 @@ export class LocalCore implements Core {
 
   async caption_setup() {
     return captionSetup();
+  }
+
+  async tools({ category, search }: Args<"tools">) {
+    const page = await getFlowPage();
+    const applets = await listApplets(page, category);
+    const filtered = search
+      ? applets.filter(
+          (a) =>
+            a.name.toLowerCase().includes(search.toLowerCase()) ||
+            a.description.toLowerCase().includes(search.toLowerCase()) ||
+            a.author.toLowerCase().includes(search.toLowerCase()),
+        )
+      : applets;
+    return { category, count: filtered.length, applets: filtered };
+  }
+
+  async tool_open({ name }: Args<"tool_open">) {
+    const page = await getFlowPage();
+    const url = await openApplet(page, name);
+    return { name, url };
   }
 
   // Everything already downloaded, newest project first, so the panel can show past work after a restart.

@@ -190,6 +190,7 @@ audio{width:100%;margin-top:8px;filter:invert(1) hue-rotate(180deg)}
     <button data-tab="cut">Cut<small>assemble film</small></button>
     <button data-tab="captions">Captions<small>words on screen</small></button>
     <button data-tab="library">Library<small>in Flow</small></button>
+    <button data-tab="tools">Tools<small>applets</small></button>
   </nav>
 
   <div class="cols">
@@ -402,6 +403,18 @@ audio{width:100%;margin-top:8px;filter:invert(1) hue-rotate(180deg)}
           <div class="rowbtns"><button class="btn small" id="l_load">Load library</button><button class="btn small" id="l_dl" disabled>Download selected</button><button class="btn small ghost" id="l_dlhd" disabled>…in 1080p / 2K</button><button class="btn small ghost" id="l_trash" disabled style="border-color:var(--bad);color:var(--bad)">Move to Flow's Trash</button></div>
           <p class="empty" style="margin-top:6px">This removes things from your Flow project, not from <span data-place="computer">this Mac</span> — your downloaded files stay put. Flow keeps them in its Trash, where you can restore them.</p>
           <div class="lib" id="l_list"></div>
+        </div>
+      </section>
+
+      <!-- TOOLS -->
+      <section class="panel" data-panel="tools">
+        <div class="step">Reference</div>
+        <h2>Tools</h2>
+        <p class="lede">Flow's applets marketplace — 34+ Google-built tools (Templates) plus your saved tools (My Tools) and community creations (Community). Each tool runs in a sandboxed iframe; click Open to launch it in Flow.</p>
+        <div class="card">
+          <div class="rowbtns" style="margin-bottom:8px"><button class="btn small" id="t_load">Load Templates</button><button class="btn small" id="t_load_mine">Load My Tools</button><button class="btn small" id="t_load_comm">Load Community</button></div>
+          <label class="f" style="margin-top:8px">Search</label><input type="text" id="t_search" placeholder="Filter by name, author, or description">
+          <div class="lib" id="t_list" style="margin-top:10px"></div>
         </div>
       </section>
     </main>
@@ -1078,7 +1091,7 @@ async function loadGallery(prefer) {
   renderGallery(); renderTakes();
 }
 // Which saved files each tab's gallery shows. Shots uses stills as first and last frames as well as clips.
-const GALLERY_KINDS = { cast: ["image"], frames: ["image"], shots: ["video", "image"], restyle: ["video"], cut: ["video"], captions: ["video"] };
+const GALLERY_KINDS = { cast: ["image"], frames: ["image"], shots: ["video", "image"], restyle: ["video"], cut: ["video"], captions: ["video"], tools: [] };
 // How to name this computer and its bin. Starts with the Mac wording and is replaced by what the server reports, so a
 // PC says "this PC" and "the Recycle Bin".
 let PLACE = { computer: "this Mac", bin: "the Mac's Trash", binShort: "Mac Trash", local_engine: "macOS voice", platform: "darwin" };
@@ -1125,6 +1138,45 @@ $("#galTrashDir").onclick = async () => {
   const p = GAL.find((x) => x.name === $("#galProject").value); if (!p) return;
   if (await discardLocal(p.dir, `the "${p.name}" folder and its ${p.files.length} file(s)`)) loadGallery();
 };
+
+/* ---------- TOOLS tab ---------- */
+let TOOLS_LIST = [];
+async function loadTools(category = "Templates") {
+  try {
+    const res = await api("tools", { category, search: $("#t_search").value });
+    TOOLS_LIST = res.applets || [];
+    renderTools();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+function renderTools() {
+  const list = $("#t_list"), search = $("#t_search").value.toLowerCase();
+  const filtered = TOOLS_LIST.filter(
+    (t) => !search || t.name.toLowerCase().includes(search) || t.description.toLowerCase().includes(search) || t.author.toLowerCase().includes(search)
+  );
+  list.innerHTML = filtered.length
+    ? filtered.map((t) => `<figure style="display:flex;align-items:flex-start;gap:12px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--ink2)">
+      <img src="${esc(t.preview)}" style="width:120px;height:68px;object-fit:cover;border-radius:6px;flex-shrink:0" loading="lazy">
+      <div style="flex:1;min-width:0">
+        <b style="font-size:15px">${esc(t.name)}</b><br>
+        <small style="color:var(--dim)">${esc(t.author)}</small><br>
+        <p style="margin:6px 0 0;font-size:13px;color:var(--muted)">${esc(t.description)}</p>
+        <button class="btn small" style="margin-top:8px" data-open-tool="${esc(t.name)}">Open in Flow</button>
+      </div>
+    </figure>`).join("")
+    : `<p class="empty">No applets found${search ? ` for "${search}"` : ""}. Try another tab.</p>`;
+}
+$("#t_load").onclick = () => loadTools("Templates");
+$("#t_load_mine").onclick = () => loadTools("My Tools");
+$("#t_load_comm").onclick = () => loadTools("Community");
+$("#t_search").oninput = () => renderTools();
+$("#t_list").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-open-tool]"); if (!b) return;
+  if (!guard()) return;
+  try { await api("tool_open", { name: b.dataset.openTool }); toast(`Opening ${b.dataset.openTool} in Flow...`); } catch (err) { toast(err.message, true); }
+});
+
 $("#jobs").addEventListener("click", async (e) => {
   const r = e.target.closest("[data-retry]"), c = e.target.closest("[data-cancel]");
   try { if (r) await api("retry", { job_ids: [r.dataset.retry] }); if (c) await api("cancel", { job_id: c.dataset.cancel }); if (r || c) poll(); }

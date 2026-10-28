@@ -137,14 +137,15 @@ const tileOf = (page: Page, asset: FlowAsset) =>
     ? page.locator(`flow-grid-tile-container[aria-label="${asset.name.replace(/"/g, '\\"')}"]`).first()
     : mediaTile(page, asset.id!);
 
-const mediaTile = (page: Page, id: string) =>
-  page
-    .locator(
-      id.startsWith("title:")
-        ? `flow-grid-tile-container[aria-label="${id.slice(6).replace(/"/g, '\\"')}"]`
-        : `flow-grid-tile-container:has([data-media-id="${id}"]), flow-grid-tile-container:has([src*="${id}"])`,
-    )
+const mediaTile = (page: Page, id: string) => {
+  if (id.startsWith('title:')) {
+    const prefix = id.slice(6, 100);
+    return page.locator(`flow-grid-tile-container[aria-label^="${prefix.replace(/"/g, '\\"')}"]`).first();
+  }
+  return page
+    .locator(`flow-grid-tile-container:has([data-media-id="${id}"]), flow-grid-tile-container:has([src*="${id}"])`)
     .first();
+}
 
 // A failed generation becomes a <flow-error-tile> ("Failed ... You have not been charged") with Flow's own Retry
 // button. Old failures can sit anywhere in the grid, so only error tiles above the first already-known tile count.
@@ -735,6 +736,62 @@ async function openProjectNav(page: Page, item: string): Promise<void> {
   if (!(await clickProjectNav(page, item))) throw new Error(`Flow's left-hand menu is not showing, so "${item}" could not be opened. Show the menu in the Flow window and try again.`);
 }
 
+// Tools tab: the Applets marketplace (/project/<id>/tools). It has three tabs (My Tools, Community, Templates)
+// and every applet card is a <flow-applet-card> with .applet-name, .applet-author and .applet-description.
+export async function openToolsTab(page: Page): Promise<void> {
+  if (page.url().match(/\/tools$/)) return;
+  if (await clickProjectNav(page, "Tools").catch(() => false)) return;
+  await page.goto(inEnglish(page.url().replace(/\/[^/]*$/, "/tools")), { waitUntil: "domcontentloaded" });
+  await pause(page, 2000);
+  // Wait for the tabs to be available (the page loads the Templates tab by default)
+  await page.waitForSelector('mat-button-toggle:has-text("Templates")', { timeout: 15000 }).catch(() => {});
+  if (!page.url().match(/\/tools$/)) throw new Error("Flow's Tools tab is not open. Open it in the Flow window and try again.");
+}
+
+export async function switchToolsTab(page: Page, tab: "My Tools" | "Community" | "Templates"): Promise<void> {
+  const btn = page.locator(`mat-button-toggle:has-text("${tab}")`);
+  // Wait for the button to be visible (some tabs may not be immediately visible on first load)
+  await btn.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+  if (!(await btn.isVisible().catch(() => false))) throw new Error(`The "${tab}" tab is not showing in the Tools page.`);
+  await btn.click({ timeout: 5000 });
+  await pause(page, 1500);
+}
+
+export async function listApplets(page: Page, category: "My Tools" | "Community" | "Templates" = "Templates"): Promise<
+  { name: string; author: string; description: string; preview: string }[]
+> {
+  await openToolsTab(page);
+  await switchToolsTab(page, category);
+  const cards = page.locator("flow-applet-card");
+  const count = await cards.count();
+  const result: { name: string; author: string; description: string; preview: string }[] = [];
+  for (let i = 0; i < count; i++) {
+    const card = cards.nth(i);
+    const name = await card.locator(".applet-name").innerText().catch(() => "");
+    const author = await card.locator(".applet-author").innerText().catch(() => "");
+    const description = await card.locator(".applet-description").innerText().catch(() => "");
+    const preview = (await card.locator(".applet-preview-image, .applet-thumbnail-image").getAttribute("src").catch(() => "")) ?? "";
+    if (name) result.push({ name, author, description, preview });
+  }
+  return result;
+}
+
+export async function openApplet(page: Page, name: string): Promise<string> {
+  await openToolsTab(page);
+  // Try each tab until the applet is found
+  for (const tab of ["Templates", "My Tools", "Community"] as const) {
+    await switchToolsTab(page, tab);
+    const card = page.locator("flow-applet-card").filter({ hasText: name }).first();
+    if (await card.isVisible().catch(() => false)) {
+      await card.click({ force: true });
+      await page.waitForURL(/\/tool\//, { timeout: 15000 }).catch(() => {});
+      await pause(page, 2000);
+      return page.url();
+    }
+  }
+  throw new Error(`Applet "${name}" not found in any Tools tab. Call flow_tools_list to see what is available.`);
+}
+
 // All media: through the left-hand menu when it shows. When it does not (collapsed and scrolled away), the top bar's
 // Filter menu does the same job: nothing ticked, newest first. `thorough` (the start of a job) checks that menu; a
 // plain grid scan does not, so a hidden menu costs nothing.
@@ -820,14 +877,13 @@ export async function runGeneration(job: Job): Promise<string[]> {
   await typePrompt(page, s.prompt);
   await scrollToTop(page);
   const before = await mediaIds(page);
+
+  // Google Flow's new UI has no "Start generation" button.
+  // Generation is triggered by pressing Enter in the ProseMirror prompt area.
   await page.keyboard.press("Enter");
+  await pause(page, 1000);
 
   const variants = s.variants ?? 1;
-
-  await new Promise((r) => setTimeout(r, 500)); // brief pause before generation
-  await page.keyboard.press("Enter");
-  await new Promise((r) => setTimeout(r, 500)); // wait for generation to start
-
   const fresh = await waitForNewMedia(page, before, variants, s.type === "image" ? IMAGE_TIMEOUT_MS : VIDEO_TIMEOUT_MS, job, s.type === "image" ? "image" : "video");
   job.progress = undefined;
 
@@ -964,7 +1020,7 @@ export async function editCharacter(name: string, change?: string, job?: Job): P
   if (!(await card.isVisible().catch(() => false))) throw new Error(`No character called "${name}". Use flow_characters to list them.`);
   await card.scrollIntoViewIfNeeded();
   await card.click();
-  await page.waitForURL(/\/character\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  await page.waitForURL(/\/character\/[0-9a-f-]{36}/, { timeout: 90_000 });
   await pause(page, 2000);
 
   if (change) {
@@ -1181,7 +1237,7 @@ export async function createCharacter(c: CharacterParams, job?: Job): Promise<{ 
   // With no characters yet Flow jumps straight to the creation page.
   const create = page.getByRole("button", { name: "New character" });
   if (await create.isVisible().catch(() => false)) await create.click();
-  await page.waitForURL(/\/character$/, { timeout: 15_000 });
+  await page.waitForURL(/\/character$/, { timeout: 60_000 });
 
   if (image.startsWith(ASSET_PREFIX)) {
     const title = image.slice(ASSET_PREFIX.length).trim();
@@ -1210,7 +1266,7 @@ export async function createCharacter(c: CharacterParams, job?: Job): Promise<{ 
   const url = page.url();
 
   const name = page.getByRole("textbox", { name: "Character name" });
-  await name.waitFor({ state: "visible", timeout: 15_000 });
+  await name.waitFor({ state: "visible", timeout: 60_000 });
   await name.fill(c.name);
   await name.press("Enter");
   if (c.personality) await page.getByRole("textbox", { name: "Character personality" }).fill(c.personality);
