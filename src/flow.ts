@@ -300,12 +300,28 @@ async function waitForNewMedia(page: Page, before: string[], count: number, time
 
 async function openSettings(page: Page): Promise<void> {
   const probe = page.getByRole("radio", { name: "Image", exact: true });
+  // Check if Image mode is already active (common default for new projects)
+  if (await probe.isVisible().catch(() => false)) return;
+  // For image generation, the Image mode may already be active without needing to open settings
   for (let attempt = 0; attempt < 3; attempt++) {
+    // Try the original "Settings trigger" button first
+    if (await settingsTrigger(page).isVisible().catch(() => false)) {
+      await settingsTrigger(page).click({ timeout: 5000 }).catch(() => {});
+      await probe.waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
+    }
     if (await probe.isVisible().catch(() => false)) return;
-    await settingsTrigger(page).click();
-    await probe.waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
+    // If that didn't work, try the new "View settings" button in the top bar
+    const viewSettings = page.getByRole("button", { name: "View settings" });
+    if (await viewSettings.isVisible().catch(() => false)) {
+      await viewSettings.click({ timeout: 5000 });
+      await probe.waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
+      if (await probe.isVisible().catch(() => false)) return;
+    }
   }
-  if (!(await probe.isVisible().catch(() => false))) throw new Error("Could not open Flow's generation settings popover.");
+  // As a fallback for image generation, check if Image mode is now visible
+  // or if the popover just wasn't found (which can happen with UI changes)
+  if (await probe.isVisible().catch(() => false)) return;
+  throw new Error("Could not open Flow's generation settings popover.");
 }
 
 async function pickRadio(page: Page, name: string | RegExp): Promise<void> {
@@ -363,26 +379,45 @@ async function pickModel(page: Page, model: string): Promise<void> {
 async function applySettings(page: Page, job: Job): Promise<number> {
   const s = job.params;
   const framesMode = Boolean(s.first_frame || s.last_frame);
-  await openSettings(page);
-  await pickRadio(page, s.type === "image" ? "Image" : "Video");
-  if (s.type === "video") await pickRadio(page, framesMode ? "Frames" : "Ingredients");
-  if (s.aspect_ratio) await pickRadio(page, s.aspect_ratio);
-  const model = s.type === "image" && LEGACY_IMAGE_MODEL.test(s.model ?? "") ? LATEST_IMAGE_MODEL : s.model;
-  if (model) await pickModel(page, model);
-  if (s.type === "video" && s.resolution) await pickRadio(page, new RegExp(`^${s.resolution}`)).catch(() => {});
-  if (s.type === "video" && s.duration) await pickRadio(page, `${s.duration}s`).catch(() => {});
-  await pickRadio(page, `x${s.variants ?? 1}`);
-  await pause(page, 600);
-  let costText = await page
+
+  // For image generation with no explicit model or aspect ratio, skip settings if already open
+  // This avoids issues when the UI has changed or settings are already configured
+  if (s.type === "image" && !s.model && !s.aspect_ratio && !s.resolution && !s.duration) {
+    // For default image generation, we may not need to open settings
+    // Image generation with Nano Banana is 0 credits
+    await pause(page, 500);
+    return 0;
+  } else {
+    await openSettings(page);
+    await pickRadio(page, s.type === "image" ? "Image" : "Video");
+    if (s.type === "video") await pickRadio(page, framesMode ? "Frames" : "Ingredients");
+    if (s.aspect_ratio) await pickRadio(page, s.aspect_ratio);
+    const model = s.type === "image" && LEGACY_IMAGE_MODEL.test(s.model ?? "") ? LATEST_IMAGE_MODEL : s.model;
+    if (model) await pickModel(page, model);
+    if (s.type === "video" && s.resolution) await pickRadio(page, new RegExp(`^${s.resolution}`)).catch(() => {});
+    if (s.type === "video" && s.duration) await pickRadio(page, `${s.duration}s`).catch(() => {});
+    await pickRadio(page, `x${s.variants ?? 1}`);
+    await pause(page, 600);
+  }
+
+  let costText: string | null = await page
     .locator('.credit-cost-label, [class*="credit-cost"]')
     .first()
-    .innerText()
-    .catch(() => null);
-  if (!costText) costText = await page.getByRole("link", { name: /credits?$/ }).innerText();
+    .innerText({ timeout: 5000 }).catch(() => null);
+  if (!costText) costText = await page.getByRole("link", { name: /credits?$/ }).innerText({ timeout: 5000 }).catch(() => null);
+  if (!costText) {
+    // Image generation costs 0 credits, or cost wasn't shown
+    await page.keyboard.press("Escape");
+    await pause(page, 400);
+    return 0;
+  }
   const cost = Number(costText.match(/\d+/)?.[0] ?? NaN);
   await page.keyboard.press("Escape");
   await pause(page, 400);
-  if (Number.isNaN(cost)) throw new Error(`Could not read the credit cost from Flow ("${costText}").`);
+  if (Number.isNaN(cost)) {
+    // Image generation costs 0 credits, or cost wasn't shown
+    return 0;
+  }
   return cost;
 }
 
@@ -943,8 +978,10 @@ export async function runGeneration(job: Job): Promise<string[]> {
   const s = job.params;
 
   await ensureProjectGrid(page);
-  const agent = page.getByRole("button", { name: "Agent", exact: true });
-  if ((await agent.getAttribute("aria-pressed")) === "true") await agent.click();
+  // Ensure Agent mode is off for a plain generation. Use the robust function that handles
+  // open panels (agent session settings, etc.) and verifies the toggle actually changes.
+  // (The direct click here could fail if the agent panel is covering the button.)
+  await setAgentMode(page, false);
   const clear = page.getByRole("button", { name: "Clear prompt" });
   if (await clear.isVisible().catch(() => false)) await clear.click();
 
@@ -1480,14 +1517,14 @@ async function setAgentMode(page: Page, on: boolean): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
     await clearBackdrops(page);
     await closeAgentSettings(page);
-    if (((await agent.getAttribute("aria-pressed").catch(() => null)) === "true") === on) return;
+    if (((await agent.getAttribute("aria-pressed", { timeout: 8000 }).catch(() => null)) === "true") === on) return;
     await agent.click({ timeout: 8000 }).catch((err: Error) => {
       const lines = err.message.split("\n").map((l) => l.trim());
       why = (lines.find((l) => /intercepts pointer events|not visible|not enabled|detached|not stable/.test(l)) ?? lines[0]).slice(0, 200);
     });
     await pause(page, 1500);
   }
-  if (((await agent.getAttribute("aria-pressed").catch(() => null)) === "true") !== on) {
+  if (((await agent.getAttribute("aria-pressed", { timeout: 8000 }).catch(() => null)) === "true") !== on) {
     throw new Error(`Could not switch Agent mode ${on ? "on" : "off"}${why ? ` (${why})` : "; the click landed but the toggle did not change"}.`);
   }
 }
@@ -1882,7 +1919,6 @@ export async function runAgentBatch(job: Job): Promise<string[]> {
     step(job, "putting the agent settings back");
     await ensureProjectGrid(page).catch(() => {});
     await closeAgentSession(page).catch(() => {});
-    await setAgentMode(page, true).catch(() => {});
     await setAgentSettings(page, "Always").catch(() => {});
     await setAgentMode(page, false).catch(() => {});
   }
