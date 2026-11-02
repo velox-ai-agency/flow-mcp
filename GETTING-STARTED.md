@@ -236,8 +236,13 @@ Then restart your assistant app so it picks up the new version.
 
 ### Claude Code (CLI)
 
+**Important:** You must run `npm run login` first and sign in to Google in the Chrome window that opens before using MCP tools.
+
 ```bash
-# In your flow-mcp directory
+# Login once (sign in to Google, open a Flow project, leave Chrome open)
+npm run login
+
+# Now you can use Claude Code commands
 claude flow_generate --project "my-video" --scenes '[
   {"prompt":"a sunset over mountains","type":"video","duration":6,"resolution":"720p"},
   {"prompt":"close-up of a butterfly on a flower","type":"image"}
@@ -270,7 +275,7 @@ claude flow_download --project "promo" --assets "scene-01"
 
 ### Opencode
 
-Opencode connects to flow-mcp the same way as Claude Code. Make sure your `claude_desktop_config.json` or `.opencode/settings.json` has:
+Opencode connects to flow-mcp the same way as Claude Code (auto-discovers it). No config file is needed for Opencode. If you want to set environment variables, use `.opencode/settings.json`:
 
 ```json
 {
