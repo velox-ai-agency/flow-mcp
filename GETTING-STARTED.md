@@ -229,3 +229,136 @@ npm run build
 ```
 
 Then restart your assistant app so it picks up the new version.
+
+---
+
+## Using with Specific AI Assistants
+
+### Claude Code (CLI)
+
+```bash
+# In your flow-mcp directory
+claude flow_generate --project "my-video" --scenes '[
+  {"prompt":"a sunset over mountains","type":"video","duration":6,"resolution":"720p"},
+  {"prompt":"close-up of a butterfly on a flower","type":"image"}
+]'
+```
+
+**Key tools available:**
+- `flow_status` - Check credits and session
+- `flow_generate` - Queue generations  
+- `flow_wait` - Wait for results
+- `flow_download` - Download existing media
+- `flow_agent_images` - Fast parallel image batches (0 credits)
+- `flow_edit` - Video editing
+- `flow_assemble` - Join clips together
+
+**Example workflow:**
+```bash
+# Check session
+claude flow_status
+
+# Generate a video
+claude flow_generate --project "promo" --scenes '[{"prompt":"a futuristic cityscape at night","type":"video","duration":8}]'
+
+# Wait for it
+claude flow_wait --timeout_seconds 120
+
+# Download results
+claude flow_download --project "promo" --assets "scene-01"
+```
+
+### Opencode
+
+Opencode connects to flow-mcp the same way as Claude Code. Make sure your `claude_desktop_config.json` or `.opencode/settings.json` has:
+
+```json
+{
+  "mcpServers": {
+    "flow": {
+      "command": "node",
+      "args": ["/Users/h/flow-mcp/dist/index.js"],
+      "env": {
+        "FLOW_MCP_OUTPUT": "/Users/h/flow-mcp-out",
+        "FLOW_MCP_HOME": "/Users/h/.flow-mcp"
+      }
+    }
+  }
+}
+```
+
+**Usage examples:**
+```bash
+# Through MCP tool calls or via agent instructions
+# Generate images
+/generate scene="hero portrait" style="cinematic lighting"
+
+# Generate video
+/generate scene="explosion in slow motion" duration=6 resolution=720p
+
+# Wait for results
+/wait job_ids=["your-job-id-here"]
+```
+
+### Hermes-Agent
+
+```bash
+# Run a flow-mcp task
+hermes-agent run flow-generate \
+  --project brand-video \
+  --prompt "product shot of a coffee cup on a marble table, studio lighting" \
+  --type image \
+  --max-credits 0
+```
+
+**Multi-scene batches:**
+```bash
+hermes-agent run flow-agent-images \
+  --project storyboard \
+  --scenes "['a detective in a trench coat, rain-soaked city street', 'close-up of a mysterious key', 'close-up of a notebook page with cryptic symbols']" \
+  --aspect 16:9
+```
+
+### Generic Command-Line Usage
+
+You can also call the MCP server directly:
+
+```bash
+# Start the server (optional - Claude Code starts it automatically)
+npm start
+
+# Or test it with the MCP protocol
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"flow_status"}}' | node dist/index.js
+```
+
+### Common Workflows
+
+**Generate a batch of character portraits (free):**
+```bash
+# Via Claude Code
+claude flow_agent_images --project "characters" --scenes "['a wise wizard with a long beard', 'a brave knight in shining armor', 'a rogue with clever eyes']"
+```
+
+**Create a character, then use in scenes:**
+```bash
+# 1. Create character (free)
+claude flow_character --name "Hero" --describe "a young adventurer with a magical sword"
+
+# 2. Use in scenes
+claude flow_generate --project "story" --scenes '[{"prompt":"Hero standing on a cliff, looking at the horizon","type":"image","reference_images":["asset:Hero"]}]'
+```
+
+**Edit a video:**
+```bash
+# Edit existing clip
+claude flow_edit --project "edits" --asset "scene-01" --prompt "change the lighting to golden hour" --acknowledge_cost true
+```
+
+**Compile a scene:**
+```bash
+# Assemble clips with narration
+claude flow_assemble --project "short-film" --clips "/path/to/clip-01.mp4,/path/to/clip-02.mp4" --voiceover "/path/narration.m4a"
+```
+
+---
+
